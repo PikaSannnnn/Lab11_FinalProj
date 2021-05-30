@@ -62,13 +62,14 @@ unsigned char GetKeypadKey() {
 	if (GetBit(PINC, 0) == 0) { return('1'); }
 	if (GetBit(PINC, 1) == 0) { return('4'); }
 	if (GetBit(PINC, 2) == 0) { return('7'); }
+	if (GetBit(PINC, 3) == 0) { return('*'); }	// will be sent to default case
 
 	PORTC = 0xDF;	// Second Column
 	asm("nop");
 	if (GetBit(PINC, 0) == 0) { return('2'); }
 	if (GetBit(PINC, 1) == 0) { return('5'); }
 	if (GetBit(PINC, 2) == 0) { return('8'); }
-	if (GetBit(PINC, 3) == 0) { return('0'); }
+	if (GetBit(PINC, 3) == 0) { return('0'); }	// will be sent to default case
 	// finish
 
 	PORTC = 0xBF;	// Third Column
@@ -76,7 +77,16 @@ unsigned char GetKeypadKey() {
 	if (GetBit(PINC, 0) == 0) { return('3'); }
 	if (GetBit(PINC, 1) == 0) { return('6'); }
 	if (GetBit(PINC, 2) == 0) { return('9'); }
+	if (GetBit(PINC, 3) == 0) { return('#'); }	// will be sent to default case
+	// finish
 
+	PORTC = 0x7F;	// Fourth column
+	asm("nop");
+	if (GetBit(PINC, 0) == 0) { return('A'); }	// will be sent to default case
+	if (GetBit(PINC, 1) == 0) { return('B'); }	// will be sent to default case
+	if (GetBit(PINC, 2) == 0) { return('C'); }	// will be sent to default case
+	if (GetBit(PINC, 3) == 0) { return('D'); }	// will be sent to default case
+	
 	return('\0');
 }
 
