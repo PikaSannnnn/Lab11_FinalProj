@@ -17,17 +17,32 @@
 #include "scheduler.h"
 #include "lcd.h"
 
+/*	MC PINS
+	PA0-PA7	= LCD_Data
+	PB0-PB3	= Shift Register
+	PB4-PB5	= LCD_Control
+	PB6	= Speaker
+	PC0-PC7	= Keypad
+	PD0-PD7	= 7-Segment
+*/
+/*	SHIFT REG PINS
+	Q0
+*/
+
 int main(void) {
 	DDRA = 0xFF; PORTA = 0x00;
 	DDRB = 0xFF; PORTB = 0x00;
-	DDRC = 0xF0; PORTC = 0x0F;	// keyPad
+	DDRC = 0xF0; PORTC = 0x0F;
 	DDRD = 0xFF; PORTD = 0x00;
 
-	TimerSet(250);
+	TimerSet(1000);	// use GCD function
 	TimerOn();
+	LCD_init();
 
 	while (1) {
-		LCD_DisplayString(1, (const unsigned char*)"H");
+		LCD_ClearScreen();
+		LCD_DisplayString(1, (const unsigned char *)("################"));
+		LCD_DisplayString(17, (const unsigned char *)("################"));
 		while (!TimerFlag);
 		TimerFlag = 0;
 	}
