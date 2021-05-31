@@ -50,7 +50,7 @@ void LCD_WriteData(unsigned char Data) {
 }
 
 void LCD_DisplayString( unsigned char column, const unsigned char* string) {
-   //LCD_ClearScreen();	// Manual Clear Screen
+   //LCD_ClearScreen();	// Manual Clearing Screen
    unsigned char c = column;
    while(*string) {
       LCD_Cursor(c++);
