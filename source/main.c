@@ -161,15 +161,15 @@ enum MathStates {MATH_CLEAR, FIRSTNUM, NUMBER, OPERATOR, PRINT, SOLVE, CHECK};
 int MathProblemSM(int state) {	// prints and checks math inputs
 	static unsigned char solved;	// whether or not problem is solved, 0 => not yet solved (but not failed)
 	static int Solution;		// solution to math
-	static unsigned short equationLen = 0;
+	static unsigned short equationLen;
 	static int InputSolution;	// solution to input
-	char* operator = "\0";
+	static char* operator = "\0";
 	static short numOps;
 	int randVal;
 
 	switch (state) {
 		case MATH_CLEAR:
-			state = NUMBER;
+			state = FIRSTNUM;
 			break;
 		case FIRSTNUM:
 			state = OPERATOR;
@@ -204,6 +204,7 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 			failed = 0;
 			Solution = 0;
 			InputSolution = 0;
+			equationLen = 0;
 			numOps = 0;
 			break;
 	}
@@ -260,18 +261,21 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 				PrintText(num_to_str(text_to_num(input)));
 				InputSolution *= 10;	// shifts digit left
 				InputSolution += text_to_num(input);	// adds new digit
+				input = '\0'; 
 			}
 			failed = 0;
 			break;
 		case CHECK:
-			if (Solution == InputSolution) {
+			input = '\0';	// Clears input; Transition to this state does not clear input. This is needed.
+			if (Solution == InputSolution) {	// correct
 				LCD_ClearScreen();
 				displayColumn = 1;
 				PrintText("YAY\0");
 			}
-			else {
-				displayColumn = 1 + equationLen;
+			else {					// incorrect
+				displayColumn = equationLen;
 				LCD_Clean(displayColumn);
+				InputSolution = 0;
 				failed = 1;
 			}
 			break;  
