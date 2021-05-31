@@ -34,29 +34,36 @@
 #define GREEN	0x02
 #define RED	0x01	
 
-unsigned char difficulty = 1;	// 0 = none ; 1 = unsecure ; 2 = secure ; 3 = maximum security
+unsigned char gameStartFlag = 1;// flag for if game has been started					// DEBUG
+unsigned char difficulty = 1;	// 0 = none ; 1 = unsecure ; 2 = secure ; 3 = maximum security		// DEBUG
+unsigned char maxOps = 1;	// maximum number of ops, initialized by difficulty			// DEBUG
 unsigned char numCompleted = 0;	// resets at a lock unlock	// LED
 unsigned char numUnlocks = 0;	// total number of unlocks, need 2 to open safe	// LED
 unsigned char numAttempts = 0;	// total number of attempts, depends on difficulty
 unsigned char timeAttempt = 0;	// total "time" value, multiplier to depends on difficulty	// LED
 unsigned char failed = 0x00;	// whether or not problem is incorrectly solved, 1 => not correct
-unsigned char input = 0x00;
-unsigned char timerLED = 0x00;
-unsigned char displayColumn = 1;
-unsigned char endFlag = 0;
-const double frq = 0.00;
-int score = 0;
+unsigned char input = 0x00;	// global keypad input
+unsigned char timerLED = 0x00;	// flag for if timer LED should be lit/blinked
+unsigned char displayColumn = 1;// column for LCD display
+unsigned char endFlag = 0;	// flag for game end
+const double frq = 0.00;	// frequency for speakers
+int score = 0;			// score
 
+// SM FUNCTIONS
 int SetDifficultySM(int state);
 int MathProblemSM(int state);
 int SafeSM(int state);	// main sm, handles locked, unlocked, and in betweens (and fail)
 
-int Input(int state);
-char* num_to_str(int number);
-int text_to_num (unsigned char math);
-void PrintText(char* text);
-void SetLights();
-void ComputeScore();
+// COMPUTATIONAL/OPERATIONS FUNCTIONS
+int Input(int state);			// gets keypad input and sets to global input
+char* num_to_str(int number);		// converts decimal number to char*
+int text_to_num (unsigned char math);	// converts char* to decimal number
+void PrintText(char* text);		// PrintsText (utilizes LCD_DisplayString)
+unsigned char GetSuccessLED();		// Returns binary of which LEDs to light for "completed" LEDs
+unsigned char GetUnlockLED();		// Returns binary of which LEDs to light for "unlocked" LEDs
+void SetLights();			// Sets LED for register
+void DisplaySeg(char* value);		// char* will be converted to char for sevenseg func
+void ComputeScore();			// Computes score
 
 int main(void) {
 	DDRA = 0xFF; PORTA = 0x00;
@@ -66,7 +73,6 @@ int main(void) {
 
 	int randNum;
 	int numPeriod = 0; 
-	unsigned char gameStarted = 0xFF;			///////////////////////////////////////////
 	TimerSet(1);	// MathSM will update/change at 1ms per update (make it seem instant)
 	TimerOn();
 	LCD_init();
@@ -93,18 +99,18 @@ int main(void) {
 	keyin.elapsedTime = keyin.period;
 	keyin.TickFct = &Input;
 
-	srand(0);					/////////////////////////////////////////////////////
+	srand(0);					// DEBUG
 
 	while (1) {
-		if ((!gameStarted) && (!difficulty)) {	// game not started and difficulty not selected
+		if ((!gameStartFlag) && (!difficulty)) {	// game not started and difficulty not selected
 			numPeriod++;
 		}
-		else if ((!gameStarted) && difficulty) {	// difficulty has been selected, seed rand
+		else if ((!gameStartFlag) && difficulty) {	// difficulty has been selected, seed rand
 			randNum = (difficulty * numPeriod * 3) % 7;
 			srand(randNum);
-			gameStarted = 0xFF;	// sets gameStarted to true, prevents this and above if from running
+			gameStartFlag = 1;	// sets gameStartFlag to true, prevents this and above if from running
 		}
-		else if (gameStarted) {
+		else if (gameStartFlag) {
 			for (unsigned short i = 0; i < numTasks; i++) {
 				if (tasks[i]->elapsedTime == tasks[i]->period) {
 					tasks[i]->state = tasks[i]->TickFct(tasks[i]->state);
@@ -127,6 +133,8 @@ int SetDifficultySM(int state) {
 	if (endFlag) {
 		return state;
 	}
+
+	difficulty = 1;
 
 	// outputs difficulties
 	// sets selected difficulty
@@ -171,12 +179,12 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 	}
 
 	static unsigned char solved;	// whether or not problem is solved, 0 => not yet solved (but not failed)
-	static unsigned char unlocking;
+	static unsigned char unlocking;	// unlocking flag
 	static int Solution;		// solution to math
-	static unsigned short equationLen;
+	static unsigned short equationLen;	// length of equation (used for displayColumn)
 	static int InputSolution;	// solution to input
-	static char* operator = "\0";
-	static short numOps;
+	static char* operator = "\0";	// opearator being used
+	static short numOps;		// number of operators in equation (difficulty determines maximum # of operators)
 	static int tmpVal;
 
 	switch (state) {
@@ -187,7 +195,7 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 			state = OPERATOR;
 			break;
 		case NUMBER:
-			if (numOps < difficulty) {
+			if (numOps < maxOps) {				// FIX maxOps UPDATE FOR DIFFICULTIES
 				state = OPERATOR;
 			}
 			else {
@@ -238,6 +246,7 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 	switch (state) {
 		case MATH_CLEAR:
 			LCD_ClearScreen();
+			displayColumn = 1;
 			solved = 0;
 			unlocking = 0;
 			failed = 0;
@@ -248,7 +257,7 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 			tmpVal = 0;
 			break;
 		case FIRSTNUM:
-			tmpVal = (rand()) % (((10 + (5 * numUnlocks)) * difficulty) + 1);	// range between 0-10 inclusive, 0-15 inclusive if 1 is unlocked (for unsecure level), multiply by difficulty
+			tmpVal = (rand()) % (((15 + (5 * numUnlocks)) * difficulty) + 1);	// range between 0-10 inclusive, 0-15 inclusive if 1 is unlocked (for unsecure level), multiply by difficulty
 			Solution = tmpVal;
 
 			PrintText(num_to_str(tmpVal));
@@ -285,6 +294,7 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 			break;
 		case PRINT:
 			PrintText("=\0");
+			PrintText(num_to_str(Solution));	// DEBUG
 			equationLen += displayColumn;	// displayColumn - 1 at this part is equal to the equation len
 			break;
 		case SOLVE:
@@ -300,7 +310,6 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 			input = '\0';	// Clears input; Transition to this state does not clear input. This is needed.
 			if (Solution == InputSolution) {	// correct
 				solved = 1;
-				displayColumn = 1;
 				numCompleted++;
 				if (numCompleted >= 3) {
 					tmpVal = 0;
@@ -313,11 +322,21 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 				InputSolution = 0;
 				failed = 1;
 				numCompleted = 0;
+				numAttempts--;
 			}
 			break;
 		case UNLOCKING:
+			if (tmpVal == 0) {
+				displayColumn = 1;
+				LCD_ClearScreen();
+				PrintText("Unlocking");
+			}
+			else if (tmpVal == 500 || tmpVal == 1000 || tmpVal == 1500) {
+				PrintText(".");
+			}
+
 			tmpVal++;
-			if (tmpVal >= 1000) {	// 1 second unlock time
+			if (tmpVal >= 2000) {	// 2 second unlock time
 				unlocking = 0;
 				numCompleted = 0;
 				numUnlocks++;
@@ -332,51 +351,99 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 
 	return state;	// return to do punishment
 }
-enum SafeStates {RESET, LOCKED, ONE_UNLOCK, UNLOCKED, ALARM};
+enum SafeStates {PRE_GAME, GAME_INIT, LOCKED, ONE_UNLOCK, UNLOCKED, WAIT_END, END_GAME, ALARM};
 int SafeSM(int state) {	// main sm, handles locked, unlocked, and in betweens (and fail)
-	// UnlockLEDS will change
+	static int cnt;
 	switch (state) {
-		case RESET:
+		case PRE_GAME:
+			if (gameStartFlag) {
+				state = GAME_INIT;
+			}
+			break;
+		case GAME_INIT:
 			state = LOCKED;
 			break;
 		case LOCKED:
+			if (numAttempts <= 0) {
+				state = ALARM;
+			}
 			if (numUnlocks == 1) {
 				state = ONE_UNLOCK;
 			}
 			break;
 		case ONE_UNLOCK:
+			if (numAttempts <= 0) {
+				state = ALARM;
+			}
 			if (numUnlocks == 2) {
 				state = UNLOCKED;
 			}
 			break;
 		case UNLOCKED:
-			// IDK yet
+			state = WAIT_END;
 			break;
-		case ALARM:
-			// AHHH, maybe have an "end" flag
+		case WAIT_END:
+			if (cnt >= 100) {	// Display End Message for 5 seconds
+				state = END_GAME;
+				cnt = 0;
+			}
+			break;
+		case END_GAME:
+			// Display Score
+			break;
+		case ALARM:			// ALARM will NOT include sound
+			state = WAIT_END;
 			break;
 		default:
-			state = RESET;
+			state = PRE_GAME;
+			cnt = 0;
 			break;
 	}
 
 	switch (state) {
-		case RESET:
-			numUnlocks = 0;
+		case PRE_GAME:		// Resets important globals to default
+			numCompleted = 0;
+			numUnlocks = 0;	
+			numAttempts = 0;
+			timeAttempt = 0;
+			failed = 0x00;
+			input = 0x00;
+			timerLED = 0;
+			displayColumn = 1;
 			endFlag = 0;
+			score = 0;
+			break;
+		case GAME_INIT:
+			maxOps = 1;
+			endFlag = 0;
+			numAttempts = 5;		// FIX FOR DIFFICULTIES, MEDIUM->3, HARD -> 1			// DEBUG			
+			timeAttempt = 0;										// DEBUG
 			break;
 		case LOCKED:
+			// nothing
 			break;
 		case ONE_UNLOCK:
+			// nothing
 			break;
 		case UNLOCKED:
 			endFlag = 1;
 			LCD_ClearScreen();
-			PrintText("      SAFE      ");
-			PrintText("    UNLOCKED    ");
+			displayColumn = 1;
+			PrintText("====  SAFE  ====");
+			PrintText("==  UNLOCKED  ==");
+			break;
+		case WAIT_END:
+			cnt++;
+			break;
+		case END_GAME:
+			// Pressing any button should set gameStartFlag to false
 			break;
 		case ALARM:
-			// AHHH, maybe have an "end" flag
+			endFlag = 1;
+			LCD_ClearScreen();
+			displayColumn = 1;
+			PrintText("===  ALARM  ===");
+			PrintText("==  SOUNDED  ==");
 			break;
 	}
 	return state;	
@@ -384,32 +451,22 @@ int SafeSM(int state) {	// main sm, handles locked, unlocked, and in betweens (a
 
 
 char* num_to_str(int number) {
-	short numLen;	// length of number
-	char* numTxt;
-	char* termChar;
 	short ones = number % 10;	// gets one's place
 	short tens = number / 10;	// gets ten's place
 
-	if (number < 10) {
-		numLen = 1;
-		numTxt = "0";
+	if (tens == 0) {
+		char* numTxt = "0";	
+		*(numTxt) = (ones + '0');	// converts and stores ascii vers. of int
+		return numTxt;
 	}
 	else {
-		numLen = 2;
-		numTxt = "00";
-	}
-
-	termChar = numTxt + numLen;
-	*termChar = '\0';			// assigning term char at end of string
-	if (tens == 0) {
-		*(numTxt) = ones + '0';		// converts and stores ascii vers. of int
-	}
-	else {	
+		char* numTxt = "00";
 		*(numTxt) = tens + '0';		// converts and stores ascii vers. of int
 		*(numTxt + 1) = ones + '0'; 	// converts and stores ascii vers. of int
+		return numTxt;
 	}
 
-	return numTxt;
+	return "";
 }
 
 int text_to_num (unsigned char math) {
@@ -439,7 +496,14 @@ int text_to_num (unsigned char math) {
 	return 0;
 }
 void PrintText(char* text) {
-	unsigned short textLen = sizeof(text) - 1;	// Gets Length of c-string - 1 (null term char)
+	// Calculate text length
+	unsigned short textLen = 0;
+	char* charPtr = text;
+	while (*(charPtr) != '\0') {
+		textLen++;	
+		charPtr++;
+	}
+
 	LCD_DisplayString(displayColumn, (const unsigned char *)(text));
 	displayColumn += textLen;
 }
@@ -479,6 +543,10 @@ void SetLights() {
 	ledOutput = ledOutput | GetUnlockLED();
 
 	transmit_data(ledOutput);
+}
+void DisplaySeg(char* value) {
+	char sevensegVal = *(value);	// number is guaranteed to be single digit (in first address of c-string)
+	Write7Seg(sevensegVal);
 }
 void ComputeScore() {
 
