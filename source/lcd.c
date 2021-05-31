@@ -57,6 +57,14 @@ void LCD_DisplayString( unsigned char column, const unsigned char* string) {
       LCD_WriteData(*string++);
    }
 }
+void LCD_Clean(unsigned char column) {	// cleans given column and everything after it
+   unsigned char c = column;
+   while(c <= 32) {
+      LCD_Cursor(c++);
+      LCD_WriteData(' ');
+   }
+   LCD_Cursor(column);
+}
 
 void LCD_Cursor(unsigned char column) {
    if ( column < 17 ) { 

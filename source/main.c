@@ -34,7 +34,7 @@
 #define GREEN	0x01
 #define RED	0x02	
 
-unsigned char difficulty = 2;	// 0 = none ; 1 = unsecure ; 2 = secure ; 3 = maximum security
+unsigned char difficulty = 1;	// 0 = none ; 1 = unsecure ; 2 = secure ; 3 = maximum security
 unsigned char numCompleted = 0;	// resets at a lock unlock	// LED
 unsigned char numUnlocks = 0;	// total number of unlocks, need 2 to open safe	// LED
 unsigned char numAttempts = 0;	// total number of attempts, depends on difficulty
@@ -51,7 +51,7 @@ int MathProblemSM(int state);
 int SafeSM(int state);	// main sm, handles locked, unlocked, and in betweens (and fail)
 
 int Input(int state);
-char* num_to_text(int number);
+char* num_to_str(int number);
 int text_to_num (unsigned char math);
 void PrintText(char* text);
 void ComputeScore();
@@ -65,14 +65,14 @@ int main(void) {
 	int randNum;
 	int numPeriod = 0; 
 	unsigned char gameStarted = 0xFF;			///////////////////////////////////////////
-	TimerSet(50);	// use GCD function
+	TimerSet(1);	// MathSM will update/change at 1ms per update (make it seem instant)
 	TimerOn();
 	LCD_init();
 	transmit_data(0x00);	// "Clear" register
 	LCD_ClearScreen();
 
-	static task safe, math;
-	task *tasks[] = {&safe, &math};
+	static task safe, math, keyin;
+	task *tasks[] = {&safe, &math, &keyin};
 	const unsigned short numTasks = sizeof(tasks)/sizeof(task*);
 	const char start = -1;
 
@@ -82,9 +82,14 @@ int main(void) {
 	safe.TickFct = &SafeSM;
 
 	math.state = start;
-	math.period = 50;
+	math.period = 1;
 	math.elapsedTime = math.period;
 	math.TickFct = &MathProblemSM;
+
+	keyin.state = start;
+	keyin.period = 50;
+	keyin.elapsedTime = keyin.period;
+	keyin.TickFct = &Input;
 
 	srand(0);					/////////////////////////////////////////////////////
 
@@ -104,7 +109,7 @@ int main(void) {
 					tasks[i]->state = tasks[i]->TickFct(tasks[i]->state);
 					tasks[i]->elapsedTime = 0;
 				}
-				tasks[i]->elapsedTime += 50;	// += GCD
+				tasks[i]->elapsedTime += 1;	
 			}
 		}
 		
@@ -128,8 +133,27 @@ int SetDifficultySM(int state) {
 
 enum InputStates {WAIT, WAIT_RELEASE};
 int Input(int state) {
-	// get input and return it -> handles single press only.
-	// WAIT_RELEASE returns null
+	// get input and store it -> handles single press only.
+	unsigned char keypadIn = GetKeypadKey();
+
+	switch (state) {
+		case WAIT:
+			if (keypadIn != '\0') {
+				state = WAIT_RELEASE;
+				input = keypadIn;
+			}
+			break;
+		case WAIT_RELEASE:
+			if (keypadIn == '\0') {
+				state = WAIT;
+			}
+			input = '\0';
+			break;
+		default:
+			state = WAIT;
+			input = 0x00;
+			break;
+	}
 	return state;
 }
 
@@ -165,8 +189,14 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 			state = SOLVE;
 			break;
 		case SOLVE:
+			if (input == 'A' || input == 'B' || input == 'C' || input == 'D' || input == '#' || input == '*') {
+				state = CHECK;
+			}
 			break;
 		case CHECK:
+			if (failed) {
+				state = SOLVE;
+			}
 			break;
 		default:
 			state = MATH_CLEAR;
@@ -189,7 +219,7 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 			randVal = (rand()) % ((10 * difficulty) + 1);
 			Solution = randVal;
 
-			PrintText(num_to_text(randVal));
+			PrintText(num_to_str(randVal));
 			break;
 		case NUMBER:
 			randVal = (rand()) % ((10 * difficulty) + 1);
@@ -198,9 +228,16 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 			}	 
 			else if (*operator == '-') {
 				Solution = Solution - randVal;
+				if (Solution < 0) {			// math problems should only be in the positives (negatives can't be inputted)
+					Solution = Solution + randVal;	// revert previous math op
+					displayColumn--;		// goes back to rewrite over previous '-'
+					operator = "+";			// change math op to + instead
+					PrintText(operator);
+					Solution = Solution + randVal;	// performs add op
+				}
 			}
 			
-			PrintText(num_to_text(randVal));
+			PrintText(num_to_str(randVal));
 			break;
 		case OPERATOR:
 			randVal = rand() % 2;
@@ -215,18 +252,28 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 			PrintText(operator);
 			break;
 		case PRINT:
-			if (equationLen < 17) {
-				equationLen = 17;
-			}
-			else {
-				equationLen += 1;
-			}
-
-			PrintText("= ");
+			PrintText("=\0");
+			equationLen += displayColumn;	// displayColumn - 1 at this part is equal to the equation len
 			break;
 		case SOLVE:
+			if (input != '\0') {
+				PrintText(num_to_str(text_to_num(input)));
+				InputSolution *= 10;	// shifts digit left
+				InputSolution += text_to_num(input);	// adds new digit
+			}
+			failed = 0;
 			break;
 		case CHECK:
+			if (Solution == InputSolution) {
+				LCD_ClearScreen();
+				displayColumn = 1;
+				PrintText("YAY\0");
+			}
+			else {
+				displayColumn = 1 + equationLen;
+				LCD_Clean(displayColumn);
+				failed = 1;
+			}
 			break;  
 	}
 	// convert char return to number from getKeypad
@@ -238,7 +285,7 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 	return state;	// return to do punishment
 }
 
-char* num_to_text(int number) {
+char* num_to_str(int number) {
 	short numLen;	// length of number
 	char* numTxt;
 	char* termChar;
@@ -259,7 +306,7 @@ char* num_to_text(int number) {
 	if (tens == 0) {
 		*(numTxt) = ones + '0';		// converts and stores ascii vers. of int
 	}
-	else {		
+	else {	
 		*(numTxt) = tens + '0';		// converts and stores ascii vers. of int
 		*(numTxt + 1) = ones + '0'; 	// converts and stores ascii vers. of int
 	}
