@@ -31,8 +31,8 @@
 #include "scheduler.h"
 #include "lcd.h"
 
-#define GREEN	0x01
-#define RED	0x02	
+#define GREEN	0x02
+#define RED	0x01	
 
 unsigned char difficulty = 1;	// 0 = none ; 1 = unsecure ; 2 = secure ; 3 = maximum security
 unsigned char numCompleted = 0;	// resets at a lock unlock	// LED
@@ -40,9 +40,10 @@ unsigned char numUnlocks = 0;	// total number of unlocks, need 2 to open safe	//
 unsigned char numAttempts = 0;	// total number of attempts, depends on difficulty
 unsigned char timeAttempt = 0;	// total "time" value, multiplier to depends on difficulty	// LED
 unsigned char failed = 0x00;	// whether or not problem is incorrectly solved, 1 => not correct
-unsigned char input;
-unsigned char regData;
+unsigned char input = 0x00;
+unsigned char timerLED = 0x00;
 unsigned char displayColumn = 1;
+unsigned char endFlag = 0;
 const double frq = 0.00;
 int score = 0;
 
@@ -54,6 +55,7 @@ int Input(int state);
 char* num_to_str(int number);
 int text_to_num (unsigned char math);
 void PrintText(char* text);
+void SetLights();
 void ComputeScore();
 
 int main(void) {
@@ -103,7 +105,6 @@ int main(void) {
 			gameStarted = 0xFF;	// sets gameStarted to true, prevents this and above if from running
 		}
 		else if (gameStarted) {
-			transmit_data(0x00);	// sends data to register and immediately pushes
 			for (unsigned short i = 0; i < numTasks; i++) {
 				if (tasks[i]->elapsedTime == tasks[i]->period) {
 					tasks[i]->state = tasks[i]->TickFct(tasks[i]->state);
@@ -111,6 +112,7 @@ int main(void) {
 				}
 				tasks[i]->elapsedTime += 1;	
 			}
+			SetLights();
 		}
 		
 
@@ -122,6 +124,10 @@ int main(void) {
 
 enum DifficultyStates {EASY, MEDIUM, HARD, SELECT};
 int SetDifficultySM(int state) {
+	if (endFlag) {
+		return state;
+	}
+
 	// outputs difficulties
 	// sets selected difficulty
 		// set numAttempts
@@ -130,10 +136,12 @@ int SetDifficultySM(int state) {
 		// use A ^, C v, B select
 	return state;
 }
-
 enum InputStates {WAIT, WAIT_RELEASE};
-int Input(int state) {
-	// get input and store it -> handles single press only.
+int Input(int state) {	// get input and store it -> handles single press only.
+	if (endFlag) {
+		return state;
+	}
+	
 	unsigned char keypadIn = GetKeypadKey();
 
 	switch (state) {
@@ -156,16 +164,20 @@ int Input(int state) {
 	}
 	return state;
 }
-
-enum MathStates {MATH_CLEAR, FIRSTNUM, NUMBER, OPERATOR, PRINT, SOLVE, CHECK};
+enum MathStates {MATH_CLEAR, FIRSTNUM, NUMBER, OPERATOR, PRINT, SOLVE, CHECK, UNLOCKING};
 int MathProblemSM(int state) {	// prints and checks math inputs
+	if (endFlag) {
+		return state;
+	}
+
 	static unsigned char solved;	// whether or not problem is solved, 0 => not yet solved (but not failed)
+	static unsigned char unlocking;
 	static int Solution;		// solution to math
 	static unsigned short equationLen;
 	static int InputSolution;	// solution to input
 	static char* operator = "\0";
 	static short numOps;
-	int randVal;
+	static int tmpVal;
 
 	switch (state) {
 		case MATH_CLEAR:
@@ -197,55 +209,74 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 			if (failed) {
 				state = SOLVE;
 			}
+			else if (solved && !unlocking) {
+				state = MATH_CLEAR;
+			}
+			else if (solved && unlocking) {
+				state = UNLOCKING;
+			}
+			break;
+		case UNLOCKING:
+			if (!unlocking) {
+				state = MATH_CLEAR;
+			}
 			break;
 		default:
 			state = MATH_CLEAR;
 			solved = 0;
+			unlocking = 0;
 			failed = 0;
 			Solution = 0;
 			InputSolution = 0;
 			equationLen = 0;
+			numCompleted = 0;
 			numOps = 0;
+			tmpVal = 0;
 			break;
 	}
 
 	switch (state) {
 		case MATH_CLEAR:
-			Solution = 0;
 			LCD_ClearScreen();
-			InputSolution = 0;
 			solved = 0;
+			unlocking = 0;
+			failed = 0;
+			Solution = 0;
+			InputSolution = 0;
+			equationLen = 0;
+			numOps = 0;
+			tmpVal = 0;
 			break;
 		case FIRSTNUM:
-			randVal = (rand()) % ((10 * difficulty) + 1);
-			Solution = randVal;
+			tmpVal = (rand()) % (((10 + (5 * numUnlocks)) * difficulty) + 1);	// range between 0-10 inclusive, 0-15 inclusive if 1 is unlocked (for unsecure level), multiply by difficulty
+			Solution = tmpVal;
 
-			PrintText(num_to_str(randVal));
+			PrintText(num_to_str(tmpVal));
 			break;
 		case NUMBER:
-			randVal = (rand()) % ((10 * difficulty) + 1);
+			tmpVal = (rand()) % ((10 * difficulty) + 1);
 			if (*operator == '+') {
-				Solution = Solution + randVal;
+				Solution = Solution + tmpVal;
 			}	 
 			else if (*operator == '-') {
-				Solution = Solution - randVal;
+				Solution = Solution - tmpVal;
 				if (Solution < 0) {			// math problems should only be in the positives (negatives can't be inputted)
-					Solution = Solution + randVal;	// revert previous math op
+					Solution = Solution + tmpVal;	// revert previous math op
 					displayColumn--;		// goes back to rewrite over previous '-'
 					operator = "+";			// change math op to + instead
 					PrintText(operator);
-					Solution = Solution + randVal;	// performs add op
+					Solution = Solution + tmpVal;	// performs add op
 				}
 			}
 			
-			PrintText(num_to_str(randVal));
+			PrintText(num_to_str(tmpVal));
 			break;
 		case OPERATOR:
-			randVal = rand() % 2;
-			if (randVal == 0) {
+			tmpVal = rand() % 2;
+			if (tmpVal == 0) {
 				operator = "+";
 			}
-			else if (randVal == 1) {
+			else if (tmpVal == 1) {
 				operator = "-";
 			}
 			numOps++;
@@ -268,17 +299,30 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 		case CHECK:
 			input = '\0';	// Clears input; Transition to this state does not clear input. This is needed.
 			if (Solution == InputSolution) {	// correct
-				LCD_ClearScreen();
+				solved = 1;
 				displayColumn = 1;
-				PrintText("YAY\0");
+				numCompleted++;
+				if (numCompleted >= 3) {
+					tmpVal = 0;
+					unlocking = 1;
+				}
 			}
 			else {					// incorrect
 				displayColumn = equationLen;
 				LCD_Clean(displayColumn);
 				InputSolution = 0;
 				failed = 1;
+				numCompleted = 0;
 			}
-			break;  
+			break;
+		case UNLOCKING:
+			tmpVal++;
+			if (tmpVal >= 1000) {	// 1 second unlock time
+				unlocking = 0;
+				numCompleted = 0;
+				numUnlocks++;
+			}
+			break;
 	}
 	// convert char return to number from getKeypad
 		// nums => numbers
@@ -288,6 +332,56 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 
 	return state;	// return to do punishment
 }
+enum SafeStates {RESET, LOCKED, ONE_UNLOCK, UNLOCKED, ALARM};
+int SafeSM(int state) {	// main sm, handles locked, unlocked, and in betweens (and fail)
+	// UnlockLEDS will change
+	switch (state) {
+		case RESET:
+			state = LOCKED;
+			break;
+		case LOCKED:
+			if (numUnlocks == 1) {
+				state = ONE_UNLOCK;
+			}
+			break;
+		case ONE_UNLOCK:
+			if (numUnlocks == 2) {
+				state = UNLOCKED;
+			}
+			break;
+		case UNLOCKED:
+			// IDK yet
+			break;
+		case ALARM:
+			// AHHH, maybe have an "end" flag
+			break;
+		default:
+			state = RESET;
+			break;
+	}
+
+	switch (state) {
+		case RESET:
+			numUnlocks = 0;
+			endFlag = 0;
+			break;
+		case LOCKED:
+			break;
+		case ONE_UNLOCK:
+			break;
+		case UNLOCKED:
+			endFlag = 1;
+			LCD_ClearScreen();
+			PrintText("      SAFE      ");
+			PrintText("    UNLOCKED    ");
+			break;
+		case ALARM:
+			// AHHH, maybe have an "end" flag
+			break;
+	}
+	return state;	
+}
+
 
 char* num_to_str(int number) {
 	short numLen;	// length of number
@@ -349,12 +443,44 @@ void PrintText(char* text) {
 	LCD_DisplayString(displayColumn, (const unsigned char *)(text));
 	displayColumn += textLen;
 }
+unsigned char GetSuccessLED() {
+	if (numCompleted == 0) {
+		return 0x00;
+	}
+	else if (numCompleted == 1) {
+		return 0x01;
+	}
+	else if (numCompleted == 2) {
+		return 0x03;
+	}
+	else if (numCompleted >= 3) {
+		return 0x07;
+	}
+
+	return 0x00;
+}
+unsigned char GetUnlockLED() {
+	unsigned char returnLEDs = (RED << 2) | RED;	// all red
+
+	if (numUnlocks == 1) {
+		returnLEDs = (RED << 2) | GREEN;
+	}
+	if (numUnlocks == 2) {
+		returnLEDs = (GREEN << 2) | GREEN;
+	}
+
+	return returnLEDs;
+}
+void SetLights() {
+	unsigned char ledOutput = 0x01;
+	ledOutput = ledOutput << 3;
+	ledOutput = ledOutput | GetSuccessLED();
+	ledOutput = ledOutput << 4;
+	ledOutput = ledOutput | GetUnlockLED();
+
+	transmit_data(ledOutput);
+}
 void ComputeScore() {
 
 }
 
-enum SafeStates {LOCKED, ONE_UNLOCK, TWO_UNLOCK, ALARM};
-int SafeSM(int state) {	// main sm, handles locked, unlocked, and in betweens (and fail)
-	
-	return state;	
-}
