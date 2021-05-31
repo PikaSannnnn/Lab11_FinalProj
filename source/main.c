@@ -39,22 +39,23 @@ unsigned char difficulty = 1;	// 0 = none ; 1 = unsecure ; 2 = secure ; 3 = maxi
 unsigned char maxOps = 1;	// maximum number of ops, initialized by difficulty			// DEBUG
 unsigned char numCompleted = 0;	// resets at a lock unlock	// LED
 unsigned char numUnlocks = 0;	// total number of unlocks, need 2 to open safe	// LED
-unsigned char numAttempts = 0;	// total number of attempts, depends on difficulty
-unsigned char timeAttempt = 0;	// total "time" value, multiplier to depends on difficulty	// LED
+unsigned char timerLED = 0x00;	// flag for if timer LED should be lit/blinked	// LED
+unsigned char totalTime = 180000;	// total "time" value							// DEBUG	
 unsigned char failed = 0x00;	// whether or not problem is incorrectly solved, 1 => not correct
 unsigned char input = 0x00;	// global keypad input
-unsigned char timerLED = 0x00;	// flag for if timer LED should be lit/blinked
 unsigned char displayColumn = 1;// column for LCD display
 unsigned char endFlag = 0;	// flag for game end
 const double frq = 0.00;	// frequency for speakers
+int numAttempts = -1;		// total number of attempts, depends on difficulty
 int score = 0;			// score
 
 // SM FUNCTIONS
 int SetDifficultySM(int state);
 int MathProblemSM(int state);
 int SafeSM(int state);	// main sm, handles locked, unlocked, and in betweens (and fail)
+int TimerSM(int state);
 
-// COMPUTATIONAL/OPERATIONS FUNCTIONS
+// COMPUTATIONAL/OPERATIONS FUNCTIONS	(not part of scheduler)
 int Input(int state);			// gets keypad input and sets to global input
 char* num_to_str(int number);		// converts decimal number to char*
 int text_to_num (unsigned char math);	// converts char* to decimal number
@@ -62,7 +63,7 @@ void PrintText(char* text);		// PrintsText (utilizes LCD_DisplayString)
 unsigned char GetSuccessLED();		// Returns binary of which LEDs to light for "completed" LEDs
 unsigned char GetUnlockLED();		// Returns binary of which LEDs to light for "unlocked" LEDs
 void SetLights();			// Sets LED for register
-void DisplaySeg(char* value);		// char* will be converted to char for sevenseg func
+void DisplaySeg(char* value);		// Displays number onto 7-Seg
 void ComputeScore();			// Computes score
 
 int main(void) {
@@ -79,8 +80,8 @@ int main(void) {
 	transmit_data(0x00);	// "Clear" register
 	LCD_ClearScreen();
 
-	static task safe, math, keyin;
-	task *tasks[] = {&safe, &math, &keyin};
+	static task safe, math, keyin;//, attempts;
+	task *tasks[] = {&safe, &math, &keyin};//, &attempts};
 	const unsigned short numTasks = sizeof(tasks)/sizeof(task*);
 	const char start = -1;
 
@@ -98,7 +99,12 @@ int main(void) {
 	keyin.period = 50;
 	keyin.elapsedTime = keyin.period;
 	keyin.TickFct = &Input;
-
+/*
+	attempts.state = start;
+	attempts.period = 50;
+	attempts.elapsedTime = attempts.period;
+	attempts.TickFct = &AttemptsSM;
+*/
 	srand(0);					// DEBUG
 
 	while (1) {
@@ -119,6 +125,7 @@ int main(void) {
 				tasks[i]->elapsedTime += 1;	
 			}
 			SetLights();
+			DisplaySeg(num_to_str(numAttempts));
 		}
 		
 
@@ -139,7 +146,7 @@ int SetDifficultySM(int state) {
 	// outputs difficulties
 	// sets selected difficulty
 		// set numAttempts
-		// set timeAttempt
+		// set totalTime
 	// difficulty chosen by cycling (and printing it out)
 		// use A ^, C v, B select
 	return state;
@@ -304,7 +311,7 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 				InputSolution += text_to_num(input);	// adds new digit
 				input = '\0'; 
 			}
-			failed = 0;
+			failed = 0;	// resets fail flag after transition is complete
 			break;
 		case CHECK:
 			input = '\0';	// Clears input; Transition to this state does not clear input. This is needed.
@@ -372,7 +379,7 @@ int SafeSM(int state) {	// main sm, handles locked, unlocked, and in betweens (a
 			}
 			break;
 		case ONE_UNLOCK:
-			if (numAttempts <= 0) {
+			if (numAttempts <= 0 || endFlag) {	// endFlag in this case can only be set this in TimerSM
 				state = ALARM;
 			}
 			if (numUnlocks == 2) {
@@ -404,9 +411,8 @@ int SafeSM(int state) {	// main sm, handles locked, unlocked, and in betweens (a
 		case PRE_GAME:		// Resets important globals to default
 			numCompleted = 0;
 			numUnlocks = 0;	
-			numAttempts = 0;
-			timeAttempt = 0;
-			failed = 0x00;
+			numAttempts = -1;
+			failed = 0;
 			input = 0x00;
 			timerLED = 0;
 			displayColumn = 1;
@@ -417,7 +423,7 @@ int SafeSM(int state) {	// main sm, handles locked, unlocked, and in betweens (a
 			maxOps = 1;
 			endFlag = 0;
 			numAttempts = 5;		// FIX FOR DIFFICULTIES, MEDIUM->3, HARD -> 1			// DEBUG			
-			timeAttempt = 0;										// DEBUG
+			totalTime = 0;										// DEBUG
 			break;
 		case LOCKED:
 			// nothing
@@ -429,8 +435,8 @@ int SafeSM(int state) {	// main sm, handles locked, unlocked, and in betweens (a
 			endFlag = 1;
 			LCD_ClearScreen();
 			displayColumn = 1;
-			PrintText("====  SAFE  ====");
-			PrintText("==  UNLOCKED  ==");
+			PrintText("====  SAFE  ==== ");
+			PrintText("==  UNLOCKED  == ");
 			break;
 		case WAIT_END:
 			cnt++;
@@ -442,13 +448,164 @@ int SafeSM(int state) {	// main sm, handles locked, unlocked, and in betweens (a
 			endFlag = 1;
 			LCD_ClearScreen();
 			displayColumn = 1;
-			PrintText("===  ALARM  ===");
-			PrintText("==  SOUNDED  ==");
+			PrintText(" ALARM  SOUNDED ");
 			break;
 	}
 	return state;	
 }
+enum TimerStates {BS_5, BS_10, BS_15, BS_20, BS_30, BS_40, BS_50, BS_C};
+int TimerSM(int state) {
+	if (endFlag) {
+		return state;
+	}
 
+	static int blinkTmr;
+	static int timePassed;
+	blinkTmr += 50;		// Add 50 ms to blinkTmr every time, first Iteration ignored, default sets to 0
+	timePassed += 50;	// Add 50 ms to timePassed every time, first Iteration ignored, default sets to 0
+
+	switch (state) {
+		case BS_5:
+			if (timePassed >= 30000) {
+				state = BS_10;
+				timePassed = 0;
+			}
+			break;
+		case BS_10:
+			if (timePassed >= 30000) {
+				state = BS_10;
+				timePassed = 0;
+			}
+			break;
+		case BS_15:
+			if (timePassed >= 30000) {
+				state = BS_10;
+				timePassed = 0;
+			}
+			break;
+		case BS_20:
+			if (timePassed >= 30000) {
+				state = BS_10;
+				timePassed = 0;
+			}
+			break;
+		case BS_30:
+			if (timePassed >= 30000) {
+				state = BS_10;
+				timePassed = 0;
+			}
+			break;
+		case BS_40:
+			if (timePassed >= 30000) {
+				state = BS_10;
+				timePassed = 0;
+			}
+			break;
+		case BS_50:
+			if (timePassed >= 30000) {
+				state = BS_10;
+				timePassed = 0;
+			}
+			break;
+		case BS_C:
+			if (timePassed >= 30000) {
+				state = BS_10;
+				timePassed = 0;
+			}
+			break;
+		default:
+			blinkTmr = 0;
+			timePassed = 0;
+
+			if (totalTime == 180000) {
+				state = BS_5;
+			}
+			else if (totalTime == 120000) {
+				state = BS_15;
+			}
+			else if (totalTime == 60000) {
+				state = BS_30;
+			}
+			break;
+	}
+
+	switch (state) {
+		case BS_5:
+			if (timerLED){
+				timerLED = 0x00;
+				blinkTmr = 0;	// resets after each blink (resets 50ms after blinkTmr has been set; blinkTmr will be 50ms higher than minimum)
+			}
+			if (blinkTmr >= 35900) {
+				timerLED = 0x01;
+			}
+			break;
+		case BS_10:
+			if (timerLED){
+				timerLED = 0x00;
+				blinkTmr = 0;	// resets after each blink (resets 50ms after blinkTmr has been set; blinkTmr will be 50ms higher than minimum)
+			}
+			if (blinkTmr >= 35900) {
+				timerLED = 0x01;
+			}
+			break;
+		case BS_15:
+			if (timerLED){
+				timerLED = 0x00;
+				blinkTmr = 0;	// resets after each blink (resets 50ms after blinkTmr has been set; blinkTmr will be 50ms higher than minimum)
+			}
+			if (blinkTmr >= 35900) {
+				timerLED = 0x01;
+			}
+			break;
+		case BS_20:
+			if (timerLED){
+				timerLED = 0x00;
+				blinkTmr = 0;	// resets after each blink (resets 50ms after blinkTmr has been set; blinkTmr will be 50ms higher than minimum)
+			}
+			if (blinkTmr >= 35900) {
+				timerLED = 0x01;
+			}
+			break;
+		case BS_30:
+			if (timerLED){
+				timerLED = 0x00;
+				blinkTmr = 0;	// resets after each blink (resets 50ms after blinkTmr has been set; blinkTmr will be 50ms higher than minimum)
+			}
+			if (blinkTmr >= 35900) {
+				timerLED = 0x01;
+			}
+			break;
+		case BS_40:
+			if (timerLED){
+				timerLED = 0x00;
+				blinkTmr = 0;	// resets after each blink (resets 50ms after blinkTmr has been set; blinkTmr will be 50ms higher than minimum)
+			}
+			if (blinkTmr >= 35900) {
+				timerLED = 0x01;
+			}
+			break;
+		case BS_50:
+			if (timerLED){
+				timerLED = 0x00;
+				blinkTmr = 0;	// resets after each blink (resets 50ms after blinkTmr has been set; blinkTmr will be 50ms higher than minimum)
+			}
+			if (blinkTmr >= 35900) {
+				timerLED = 0x01;
+			}
+			break;
+		case BS_C:
+			timerLED = 0x01;
+			
+			break;
+		default:
+			blinkTmr = 0;
+			timePassed = 0;
+			state = BS_15;
+			break;
+	}
+
+	return state;
+}
 
 char* num_to_str(int number) {
 	short ones = number % 10;	// gets one's place
@@ -545,8 +702,9 @@ void SetLights() {
 	transmit_data(ledOutput);
 }
 void DisplaySeg(char* value) {
-	char sevensegVal = *(value);	// number is guaranteed to be single digit (in first address of c-string)
-	Write7Seg(sevensegVal);
+	unsigned char sevensegVal = (unsigned char)(*(value));	// number is guaranteed to be single digit (in first address of c-string)
+	unsigned char ssOutput = 0x00 | Write7Seg(text_to_num(sevensegVal));
+	PORTD = ssOutput;
 }
 void ComputeScore() {
 

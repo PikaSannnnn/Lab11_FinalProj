@@ -33,13 +33,13 @@ unsigned char Write7Seg(unsigned char c) {
 	// Match your port and pin numbers:
 	
 	static unsigned char sevenSeg;	// Seven segment port
-	static const unsigned char sevenSeg_A		= 2; 		// Pin for segment A
-	static const unsigned char sevenSeg_B		= 3; 		// Pin for segment B
-	static const unsigned char sevenSeg_C		= 6; 		// Pin for segment C
-	static const unsigned char sevenSeg_D		= 5; 		// Pin for segment D
-	static const unsigned char sevenSeg_E		= 4; 		// Pin for segment E
-	static const unsigned char sevenSeg_F		= 1; 		// Pin for segment F
-	static const unsigned char sevenSeg_G		= 0; 		// Pin for segment G
+	static const unsigned char sevenSeg_A		= 5; 		// Pin for segment A
+	static const unsigned char sevenSeg_B		= 6; 		// Pin for segment B
+	static const unsigned char sevenSeg_C		= 2; 		// Pin for segment C
+	static const unsigned char sevenSeg_D		= 1; 		// Pin for segment D
+	static const unsigned char sevenSeg_E		= 0; 		// Pin for segment E
+	static const unsigned char sevenSeg_F		= 4; 		// Pin for segment F
+	static const unsigned char sevenSeg_G		= 3; 		// Pin for segment G
 	// static const unsigned char sevenSeg_DP		= 7; 		// Pin for segment DP (UNUSED)
 	
 	// Turns on all segments
