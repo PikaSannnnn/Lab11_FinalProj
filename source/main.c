@@ -200,6 +200,9 @@ int SetDifficultySM(int state) {
 			difficultySelected = 1;
 			numAttempts = 5 - ((difficulty - 1) * 2); 	// 5, 3, 1
 			totalTime = 180000 - (60000 * (difficulty - 1));
+			if (difficulty == 1) { maxOps = 2; }
+			else if (difficulty == 2) { maxOps = 3; }
+			else if (difficulty == 3) { maxOps = 5; }
 			break;
 		case PRINT_DIFFICULTY:
 			displayColumn = 1;
@@ -260,8 +263,9 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 	static unsigned short equationLen;	// length of equation (used for displayColumn)
 	static int InputSolution;	// solution to input
 	static char* operator = "\0";	// opearator being used
-	static short numOps;		// number of operators in equation (difficulty determines maximum # of operators)
+	static short numOps;		// counter of operators in equation
 	static int tmpVal;
+	static short eqMaxOps;		// number of operations that WILL be in equation
 
 	switch (state) {
 		case MATH_CLEAR:
@@ -271,7 +275,7 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 			state = OPERATOR;
 			break;
 		case NUMBER:
-			if (numOps < maxOps) {				// FIX maxOps UPDATE FOR DIFFICULTIES
+			if (numOps < eqMaxOps) {				// FIX maxOps UPDATE FOR DIFFICULTIES
 				state = OPERATOR;
 			}
 			else {
@@ -331,6 +335,7 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 			equationLen = 0;
 			numOps = 0;
 			tmpVal = 0;
+			eqMaxOps = (rand() % maxOps) + 1;	// sets num ops that will be in equation
 			break;
 		case FIRSTNUM:
 			tmpVal = (rand()) % (((15 + (5 * numUnlocks)) * difficulty) + 1);	// range between 0-10 inclusive, 0-15 inclusive if 1 is unlocked (for unsecure level), multiply by difficulty
@@ -353,17 +358,39 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 					Solution = Solution + tmpVal;	// performs add op
 				}
 			}
+			else if (*operator == '*') {
+				Solution = Solution * tmpVal;
+			}
+			else if (*operator == '/') {
+				if (tmpVal == 0) {			// math problems should only be in the positives (negatives can't be inputted)
+					tmpVal = 1;
+				}
+				Solution = Solution / tmpVal;
+			}
+			else if (*operator == '%') {
+				Solution = Solution % tmpVal;
+			}
 			
 			PrintText(num_to_str(tmpVal));
 			break;
 		case OPERATOR:
-			tmpVal = rand() % 2;
-			if (tmpVal == 0) {
+			tmpVal = rand() % (8 + (4 * (8 * (difficulty - 1))));	// EASY Max = 8(0-7), MEDIUM Max = 40(0-39), HARD Max = 72(0-71)
+			if (tmpVal < 4) {
 				operator = "+";
 			}
-			else if (tmpVal == 1) {
+			else if (tmpVal < 8) {
 				operator = "-";
 			}
+			else if (tmpVal < 24) {
+				operator = "*";
+			}
+			else if (tmpVal < 40) {
+				operator = "/";
+			}
+			else if (tmpVal < 72) {
+				operator = "%";
+			}
+
 			numOps++;
 
 			PrintText(operator);
@@ -492,7 +519,6 @@ int SafeSM(int state) {	// main sm, handles locked, unlocked, and in betweens (a
 			score = 0;
 			break;
 		case GAME_INIT:
-			maxOps = 1;
 			endFlag = 0;
 			break;
 		case LOCKED:
@@ -726,18 +752,65 @@ int AlarmSoundSM(int state) {
 }
 
 char* num_to_str(int number) {
-	short ones = number % 10;	// gets one's place
-	short tens = number / 10;	// gets ten's place
+	// Getting each digit place up to 999999
+	short ones = number % 10;	
+	short tens = (number % 100) / 10;	
+	short hunds = (number % 1000) / 100;
+	short thous = (number % 10000) / 1000;
+	short tthous = (number % 100000) / 10000;
+	short hthous = number / 100000;
 
-	if (tens == 0) {
+	if (hthous != 0) {	// number is in 100,000's
+		char* numTxt = "000000";
+		*(numTxt) = hthous + '0';		// converts and stores ascii vers. of int
+		*(numTxt + 1) = tthous + '0'; 		// converts and stores ascii vers. of int
+		*(numTxt + 2) = thous + '0';
+		*(numTxt + 3) = hunds + '0';
+		*(numTxt + 4) = tens + '0';
+		*(numTxt + 5) = ones + '0';
+		return numTxt;
+	}
+	else if (tthous != 0) {	// number is in 10,000's
+		char* numTxt = "00000";
+		*(numTxt) = tthous + '0';		// converts and stores ascii vers. of int
+		*(numTxt + 1) = thous + '0'; 		// converts and stores ascii vers. of int
+		*(numTxt + 2) = hunds + '0';
+		*(numTxt + 3) = tens + '0';
+		*(numTxt + 4) = ones + '0';
+		return numTxt;
+
+	}
+	else if (thous != 0) {	// number is in 1,000's
+		char* numTxt = "0000";
+		*(numTxt) = thous + '0';		// converts and stores ascii vers. of int
+		*(numTxt + 1) = hunds + '0'; 		// converts and stores ascii vers. of int
+		*(numTxt + 2) = tens + '0';
+		*(numTxt + 3) = ones + '0';
+		return numTxt;
+
+	}
+	else if (hunds != 0) {	// number is in 100's
+		char* numTxt = "000";
+		*(numTxt) = hunds + '0';		// converts and stores ascii vers. of int
+		*(numTxt + 1) = tens + '0'; 		// converts and stores ascii vers. of int
+		*(numTxt + 2) = ones + '0';
+		return numTxt;
+
+	}
+	else if (tens != 0) {	// number is in 10's
+		char* numTxt = "00";
+		*(numTxt) = tens + '0';		// converts and stores ascii vers. of int
+		*(numTxt + 1) = ones + '0'; 	// converts and stores ascii vers. of int
+		return numTxt;
+	}
+	else if (ones != 0) {	// number is in 1's
 		char* numTxt = "0";	
 		*(numTxt) = (ones + '0');	// converts and stores ascii vers. of int
 		return numTxt;
 	}
 	else {
-		char* numTxt = "00";
-		*(numTxt) = tens + '0';		// converts and stores ascii vers. of int
-		*(numTxt + 1) = ones + '0'; 	// converts and stores ascii vers. of int
+		char* numTxt = "0";	
+		*(numTxt) = (ones + '0');	// converts and stores ascii vers. of int
 		return numTxt;
 	}
 
