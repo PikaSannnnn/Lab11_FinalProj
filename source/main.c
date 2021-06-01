@@ -40,13 +40,14 @@ unsigned char maxOps = 1;	// maximum number of ops, initialized by difficulty			
 unsigned char numCompleted = 0;	// resets at a lock unlock	// LED
 unsigned char numUnlocks = 0;	// total number of unlocks, need 2 to open safe	// LED
 unsigned char timerLED = 0x00;	// flag for if timer LED should be lit/blinked	// LED
-unsigned char totalTime = 180000;	// total "time" value							// DEBUG	
 unsigned char failed = 0x00;	// whether or not problem is incorrectly solved, 1 => not correct
 unsigned char input = 0x00;	// global keypad input
 unsigned char displayColumn = 1;// column for LCD display
 unsigned char endFlag = 0;	// flag for game end
-const double frq = 0.00;	// frequency for speakers
-int numAttempts = -1;		// total number of attempts, depends on difficulty
+unsigned char alarmOn = 0;
+const double frq = 262.00;	// frequency for speakers
+long totalTime = 60000;		// total "time" value							// DEBUG	
+int numAttempts = 1;		// total number of attempts, depends on difficulty
 int score = 0;			// score
 
 // SM FUNCTIONS
@@ -54,6 +55,7 @@ int SetDifficultySM(int state);
 int MathProblemSM(int state);
 int SafeSM(int state);	// main sm, handles locked, unlocked, and in betweens (and fail)
 int TimerSM(int state);
+int AlarmSoundSM(int state);
 
 // COMPUTATIONAL/OPERATIONS FUNCTIONS	(not part of scheduler)
 int Input(int state);			// gets keypad input and sets to global input
@@ -79,9 +81,10 @@ int main(void) {
 	LCD_init();
 	transmit_data(0x00);	// "Clear" register
 	LCD_ClearScreen();
+	set_PWM(frq);
 
-	static task safe, math, keyin;//, attempts;
-	task *tasks[] = {&safe, &math, &keyin};//, &attempts};
+	static task safe, math, keyin, timersm, alarmsm;
+	task *tasks[] = {&safe, &math, &keyin, &timersm, &alarmsm};
 	const unsigned short numTasks = sizeof(tasks)/sizeof(task*);
 	const char start = -1;
 
@@ -99,12 +102,17 @@ int main(void) {
 	keyin.period = 50;
 	keyin.elapsedTime = keyin.period;
 	keyin.TickFct = &Input;
-/*
-	attempts.state = start;
-	attempts.period = 50;
-	attempts.elapsedTime = attempts.period;
-	attempts.TickFct = &AttemptsSM;
-*/
+
+	timersm.state = start;
+	timersm.period = 50;
+	timersm.elapsedTime = timersm.period;
+	timersm.TickFct = &TimerSM;
+
+	alarmsm.state = start; 
+	alarmsm.period = 250;
+	alarmsm.elapsedTime = alarmsm.period;
+	alarmsm.TickFct = &AlarmSoundSM;
+
 	srand(0);					// DEBUG
 
 	while (1) {
@@ -371,7 +379,7 @@ int SafeSM(int state) {	// main sm, handles locked, unlocked, and in betweens (a
 			state = LOCKED;
 			break;
 		case LOCKED:
-			if (numAttempts <= 0) {
+			if (numAttempts <= 0 || endFlag) {	// endFlag in this case can only be set this in TimerSM
 				state = ALARM;
 			}
 			if (numUnlocks == 1) {
@@ -390,7 +398,7 @@ int SafeSM(int state) {	// main sm, handles locked, unlocked, and in betweens (a
 			state = WAIT_END;
 			break;
 		case WAIT_END:
-			if (cnt >= 100) {	// Display End Message for 5 seconds
+			if (cnt >= 200) {	// Display End Message for 10 seconds
 				state = END_GAME;
 				cnt = 0;
 			}
@@ -411,7 +419,7 @@ int SafeSM(int state) {	// main sm, handles locked, unlocked, and in betweens (a
 		case PRE_GAME:		// Resets important globals to default
 			numCompleted = 0;
 			numUnlocks = 0;	
-			numAttempts = -1;
+			numAttempts = 1;
 			failed = 0;
 			input = 0x00;
 			timerLED = 0;
@@ -433,21 +441,24 @@ int SafeSM(int state) {	// main sm, handles locked, unlocked, and in betweens (a
 			break;
 		case UNLOCKED:
 			endFlag = 1;
+			timerLED = 0x00;
 			LCD_ClearScreen();
 			displayColumn = 1;
-			PrintText("====  SAFE  ==== ");
-			PrintText("==  UNLOCKED  == ");
+			PrintText("====  SAFE  ====");
+			PrintText("==  UNLOCKED  ==");
 			break;
 		case WAIT_END:
 			cnt++;
 			break;
 		case END_GAME:
-			// Pressing any button should set gameStartFlag to false
+			alarmOn = 0;
 			break;
 		case ALARM:
 			endFlag = 1;
+			alarmOn = 1;
 			LCD_ClearScreen();
 			displayColumn = 1;
+			timerLED = 0x01;
 			PrintText(" ALARM  SOUNDED ");
 			break;
 	}
@@ -459,8 +470,8 @@ int TimerSM(int state) {
 		return state;
 	}
 
-	static int blinkTmr;
-	static int timePassed;
+	static long blinkTmr;
+	static long timePassed;
 	blinkTmr += 50;		// Add 50 ms to blinkTmr every time, first Iteration ignored, default sets to 0
 	timePassed += 50;	// Add 50 ms to timePassed every time, first Iteration ignored, default sets to 0
 
@@ -473,45 +484,42 @@ int TimerSM(int state) {
 			break;
 		case BS_10:
 			if (timePassed >= 30000) {
-				state = BS_10;
+				state = BS_15;
 				timePassed = 0;
 			}
 			break;
 		case BS_15:
 			if (timePassed >= 30000) {
-				state = BS_10;
+				state = BS_20;
 				timePassed = 0;
 			}
 			break;
 		case BS_20:
 			if (timePassed >= 30000) {
-				state = BS_10;
+				state = BS_30;
 				timePassed = 0;
 			}
 			break;
 		case BS_30:
 			if (timePassed >= 30000) {
-				state = BS_10;
+				state = BS_40;
 				timePassed = 0;
 			}
 			break;
 		case BS_40:
-			if (timePassed >= 30000) {
-				state = BS_10;
+			if (timePassed >= 20000) {
+				state = BS_50;
 				timePassed = 0;
 			}
 			break;
 		case BS_50:
-			if (timePassed >= 30000) {
-				state = BS_10;
+			if (timePassed >= 10000) {
+				state = BS_C;
 				timePassed = 0;
 			}
 			break;
 		case BS_C:
-			if (timePassed >= 30000) {
-				state = BS_10;
-				timePassed = 0;
-			}
+			// send to default... i think
 			break;
 		default:
 			blinkTmr = 0;
@@ -531,79 +539,123 @@ int TimerSM(int state) {
 
 	switch (state) {
 		case BS_5:
-			if (timerLED){
+			if (timerLED && (blinkTmr >= 100)){
 				timerLED = 0x00;
 				blinkTmr = 0;	// resets after each blink (resets 50ms after blinkTmr has been set; blinkTmr will be 50ms higher than minimum)
 			}
 			if (blinkTmr >= 35900) {
 				timerLED = 0x01;
+				blinkTmr = 0;
 			}
 			break;
 		case BS_10:
-			if (timerLED){
+			if (timerLED && (blinkTmr >= 100)){
 				timerLED = 0x00;
 				blinkTmr = 0;	// resets after each blink (resets 50ms after blinkTmr has been set; blinkTmr will be 50ms higher than minimum)
 			}
-			if (blinkTmr >= 35900) {
+			if (blinkTmr >= 14900) {
 				timerLED = 0x01;
+				blinkTmr = 0;
 			}
 			break;
 		case BS_15:
-			if (timerLED){
+			if (timerLED && (blinkTmr >= 100)){
 				timerLED = 0x00;
 				blinkTmr = 0;	// resets after each blink (resets 50ms after blinkTmr has been set; blinkTmr will be 50ms higher than minimum)
 			}
-			if (blinkTmr >= 35900) {
+			if (blinkTmr >= 7900) {
 				timerLED = 0x01;
+				blinkTmr = 0;
 			}
 			break;
 		case BS_20:
-			if (timerLED){
+			if (timerLED && (blinkTmr >= 100)){
 				timerLED = 0x00;
 				blinkTmr = 0;	// resets after each blink (resets 50ms after blinkTmr has been set; blinkTmr will be 50ms higher than minimum)
 			}
-			if (blinkTmr >= 35900) {
+			if (blinkTmr >= 4400) {
 				timerLED = 0x01;
+				blinkTmr = 0;
 			}
 			break;
 		case BS_30:
-			if (timerLED){
+			if (timerLED && (blinkTmr >= 100)){
 				timerLED = 0x00;
 				blinkTmr = 0;	// resets after each blink (resets 50ms after blinkTmr has been set; blinkTmr will be 50ms higher than minimum)
 			}
-			if (blinkTmr >= 35900) {
+			if (blinkTmr >= 1900) {
 				timerLED = 0x01;
+				blinkTmr = 0;
 			}
 			break;
 		case BS_40:
-			if (timerLED){
+			if (timerLED && (blinkTmr >= 100)){
 				timerLED = 0x00;
 				blinkTmr = 0;	// resets after each blink (resets 50ms after blinkTmr has been set; blinkTmr will be 50ms higher than minimum)
 			}
-			if (blinkTmr >= 35900) {
+			if (blinkTmr >= 650) {
 				timerLED = 0x01;
+				blinkTmr = 0;
 			}
 			break;
 		case BS_50:
-			if (timerLED){
+			if (timerLED && (blinkTmr >= 100)){
 				timerLED = 0x00;
 				blinkTmr = 0;	// resets after each blink (resets 50ms after blinkTmr has been set; blinkTmr will be 50ms higher than minimum)
 			}
-			if (blinkTmr >= 35900) {
+			if (blinkTmr >= 100) {
 				timerLED = 0x01;
+				blinkTmr = 0;
 			}
 			break;
 		case BS_C:
 			timerLED = 0x01;
-			
-			break;
-		default:
-			blinkTmr = 0;
-			timePassed = 0;
-			state = BS_15;
+			endFlag = 1;
 			break;
 	}
 
+	return state;
+}
+enum AlarmSoundStates {SILENT, PULSE_ON, PULSE_OFF};
+int AlarmSoundSM(int state) {
+	switch (state) {
+		case SILENT:
+			if (alarmOn) {
+				state = PULSE_ON;
+			}
+			break;
+		case PULSE_ON:
+			if (!alarmOn) {
+				state = SILENT;
+			}
+			else {
+				state = PULSE_OFF;
+			}
+			break;
+		case PULSE_OFF:
+			if (!alarmOn) {
+				state = SILENT;
+			}
+			else {
+				state = PULSE_ON;
+			}
+			break;
+		default:
+			state = SILENT;
+			break;
+	}
+	
+	switch (state) {
+		case SILENT:
+			PWM_off();
+			break;
+		case PULSE_ON:
+			PWM_on();
+			break;
+		case PULSE_OFF:
+			PWM_off();
+			break;
+	}
 	return state;
 }
 
@@ -693,7 +745,7 @@ unsigned char GetUnlockLED() {
 	return returnLEDs;
 }
 void SetLights() {
-	unsigned char ledOutput = 0x01;
+	unsigned char ledOutput = timerLED;
 	ledOutput = ledOutput << 3;
 	ledOutput = ledOutput | GetSuccessLED();
 	ledOutput = ledOutput << 4;
