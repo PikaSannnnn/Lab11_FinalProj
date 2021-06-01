@@ -34,8 +34,8 @@
 #define GREEN	0x02
 #define RED	0x01	
 
-unsigned char gameStartFlag = 1;// flag for if game has been started					// DEBUG
-unsigned char difficulty = 1;	// 0 = none ; 1 = unsecure ; 2 = secure ; 3 = maximum security		// DEBUG
+unsigned char gameStartFlag = 0;// flag for if game has been started					
+unsigned char difficultySelected = 0;
 unsigned char maxOps = 1;	// maximum number of ops, initialized by difficulty			// DEBUG
 unsigned char numCompleted = 0;	// resets at a lock unlock	// LED
 unsigned char numUnlocks = 0;	// total number of unlocks, need 2 to open safe	// LED
@@ -47,6 +47,7 @@ unsigned char endFlag = 0;	// flag for game end
 unsigned char alarmOn = 0;
 const double frq = 262.00;	// frequency for speakers
 long totalTime = 60000;		// total "time" value							// DEBUG	
+int difficulty = 0;		// 0 = none ; 1 = unsecure ; 2 = secure ; 3 = maximum security		
 int numAttempts = 1;		// total number of attempts, depends on difficulty
 int score = 0;			// score
 
@@ -78,15 +79,20 @@ int main(void) {
 	int numPeriod = 0; 
 	TimerSet(1);	// MathSM will update/change at 1ms per update (make it seem instant)
 	TimerOn();
-	LCD_init();
+	LCD_init(); 
 	transmit_data(0x00);	// "Clear" register
 	LCD_ClearScreen();
 	set_PWM(frq);
 
-	static task safe, math, keyin, timersm, alarmsm;
-	task *tasks[] = {&safe, &math, &keyin, &timersm, &alarmsm};
+	static task difficultysm, safe, math, keyin, timersm, alarmsm;
+	task *tasks[] = {&difficultysm, &safe, &math, &keyin, &timersm, &alarmsm};
 	const unsigned short numTasks = sizeof(tasks)/sizeof(task*);
 	const char start = -1;
+
+	difficultysm.state = start;
+	difficultysm.period = 50;
+	difficultysm.elapsedTime = difficultysm.period;
+	difficultysm.TickFct = &SetDifficultySM;
 
 	safe.state = start;
 	safe.period = 50;
@@ -113,29 +119,26 @@ int main(void) {
 	alarmsm.elapsedTime = alarmsm.period;
 	alarmsm.TickFct = &AlarmSoundSM;
 
-	srand(0);					// DEBUG
-
 	while (1) {
-		if ((!gameStartFlag) && (!difficulty)) {	// game not started and difficulty not selected
+		if ((!gameStartFlag) && (!difficultySelected)) {	// game not started and difficulty not selected
 			numPeriod++;
 		}
-		else if ((!gameStartFlag) && difficulty) {	// difficulty has been selected, seed rand
+		else if ((!gameStartFlag) && difficultySelected) {	// difficulty has been selected, seed rand
 			randNum = (difficulty * numPeriod * 3) % 7;
-			srand(randNum);
+			//srand(randNum);
+			srand(0);					// DEBUG
 			gameStartFlag = 1;	// sets gameStartFlag to true, prevents this and above if from running
 		}
-		else if (gameStartFlag) {
-			for (unsigned short i = 0; i < numTasks; i++) {
-				if (tasks[i]->elapsedTime == tasks[i]->period) {
-					tasks[i]->state = tasks[i]->TickFct(tasks[i]->state);
-					tasks[i]->elapsedTime = 0;
-				}
-				tasks[i]->elapsedTime += 1;	
+
+		for (unsigned short i = 0; i < numTasks; i++) {
+			if (tasks[i]->elapsedTime == tasks[i]->period) {
+				tasks[i]->state = tasks[i]->TickFct(tasks[i]->state);
+				tasks[i]->elapsedTime = 0;
 			}
-			SetLights();
-			DisplaySeg(num_to_str(numAttempts));
+			tasks[i]->elapsedTime += 1;	
 		}
-		
+		SetLights();
+		DisplaySeg(num_to_str(numAttempts));
 
 		while (!TimerFlag);
 		TimerFlag = 0;
@@ -143,14 +146,76 @@ int main(void) {
 	return 1;
 }
 
-enum DifficultyStates {EASY, MEDIUM, HARD, SELECT};
+enum DifficultyStates {WAIT_DIFF, DOWN, UP, SELECT, PRINT_DIFFICULTY};
 int SetDifficultySM(int state) {
-	if (endFlag) {
+	if (endFlag || gameStartFlag) {
 		return state;
 	}
 
-	difficulty = 1;
+	switch (state) {
+		case WAIT_DIFF:
+			if (input == 'A') {
+				state = UP;
+			}
+			else if (input == 'C') {
+				state = DOWN;
+			}
+			else if (input == 'B') {
+				state = SELECT;
+			}
+			break;
+		case DOWN:
+			state = PRINT_DIFFICULTY;
+			break;
+		case UP:
+			state = PRINT_DIFFICULTY;
+			break;
+		case SELECT:
+			// WAIT FOR RESTART
+			break;
+		case PRINT_DIFFICULTY:
+			state = WAIT_DIFF;
+			break;
+		default:
+			difficulty = 1;
+			state = PRINT_DIFFICULTY;
+			break;
+	}
 
+	switch (state) {
+		case WAIT_DIFF:
+			// nothing
+			break;
+		case DOWN:	// Down movement, not decrease
+			if (difficulty < 3) {
+				difficulty++;
+			}
+			break;
+		case UP:	// Up movement, not increase
+			if (difficulty > 1) {
+				difficulty--;
+			}
+			break;
+		case SELECT:
+			difficultySelected = 1;
+			numAttempts = 5 - ((difficulty - 1) * 2); 	// 5, 3, 1
+			totalTime = 180000 - (60000 * (difficulty - 1));
+			break;
+		case PRINT_DIFFICULTY:
+			displayColumn = 1;
+			LCD_ClearScreen();
+			if (difficulty == 1){
+				PrintText("==  UNSECURE  ==");
+			}
+			else if (difficulty == 2) {
+				PrintText("==  SECURE  ====");
+			}
+			else if (difficulty == 3) {
+				PrintText("==  MAXIMUM  ===");
+				PrintText("==  SECURITY  ==");
+			}
+			break;
+	}
 	// outputs difficulties
 	// sets selected difficulty
 		// set numAttempts
@@ -160,11 +225,7 @@ int SetDifficultySM(int state) {
 	return state;
 }
 enum InputStates {WAIT, WAIT_RELEASE};
-int Input(int state) {	// get input and store it -> handles single press only.
-	if (endFlag) {
-		return state;
-	}
-	
+int Input(int state) {	// get input and store it -> handles single press only.	
 	unsigned char keypadIn = GetKeypadKey();
 
 	switch (state) {
@@ -189,7 +250,7 @@ int Input(int state) {	// get input and store it -> handles single press only.
 }
 enum MathStates {MATH_CLEAR, FIRSTNUM, NUMBER, OPERATOR, PRINT, SOLVE, CHECK, UNLOCKING};
 int MathProblemSM(int state) {	// prints and checks math inputs
-	if (endFlag) {
+	if (endFlag || (!gameStartFlag && !difficultySelected)) {
 		return state;
 	}
 
@@ -278,7 +339,7 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 			PrintText(num_to_str(tmpVal));
 			break;
 		case NUMBER:
-			tmpVal = (rand()) % ((10 * difficulty) + 1);
+			tmpVal = (rand()) % (((15 + (5 * numUnlocks)) * difficulty) + 1);
 			if (*operator == '+') {
 				Solution = Solution + tmpVal;
 			}	 
@@ -368,6 +429,10 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 }
 enum SafeStates {PRE_GAME, GAME_INIT, LOCKED, ONE_UNLOCK, UNLOCKED, WAIT_END, END_GAME, ALARM};
 int SafeSM(int state) {	// main sm, handles locked, unlocked, and in betweens (and fail)
+	if (!gameStartFlag && !difficultySelected) {
+		return state;
+	}
+
 	static int cnt;
 	switch (state) {
 		case PRE_GAME:
@@ -398,7 +463,7 @@ int SafeSM(int state) {	// main sm, handles locked, unlocked, and in betweens (a
 			state = WAIT_END;
 			break;
 		case WAIT_END:
-			if (cnt >= 200) {	// Display End Message for 10 seconds
+			if (cnt >= 100) {	// Display End Message for 5 seconds
 				state = END_GAME;
 				cnt = 0;
 			}
@@ -419,7 +484,6 @@ int SafeSM(int state) {	// main sm, handles locked, unlocked, and in betweens (a
 		case PRE_GAME:		// Resets important globals to default
 			numCompleted = 0;
 			numUnlocks = 0;	
-			numAttempts = 1;
 			failed = 0;
 			input = 0x00;
 			timerLED = 0;
@@ -430,8 +494,6 @@ int SafeSM(int state) {	// main sm, handles locked, unlocked, and in betweens (a
 		case GAME_INIT:
 			maxOps = 1;
 			endFlag = 0;
-			numAttempts = 5;		// FIX FOR DIFFICULTIES, MEDIUM->3, HARD -> 1			// DEBUG			
-			totalTime = 0;										// DEBUG
 			break;
 		case LOCKED:
 			// nothing
@@ -466,7 +528,7 @@ int SafeSM(int state) {	// main sm, handles locked, unlocked, and in betweens (a
 }
 enum TimerStates {BS_5, BS_10, BS_15, BS_20, BS_30, BS_40, BS_50, BS_C};
 int TimerSM(int state) {
-	if (endFlag) {
+	if (endFlag || (!gameStartFlag && !difficultySelected)) {
 		return state;
 	}
 
@@ -618,6 +680,10 @@ int TimerSM(int state) {
 }
 enum AlarmSoundStates {SILENT, PULSE_ON, PULSE_OFF};
 int AlarmSoundSM(int state) {
+	if (!gameStartFlag && !difficultySelected) {
+		return state;
+	}
+
 	switch (state) {
 		case SILENT:
 			if (alarmOn) {
