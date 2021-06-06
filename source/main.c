@@ -15,9 +15,6 @@
 	PB6	= Speaker
 	PC0-PC7	= Keypad
 	PD0-PD7	= 7-Segment
-
-	SHIFT REG PINS
-	Q0
 */
 
 #include <avr/io.h>
@@ -36,7 +33,7 @@
 
 unsigned char gameStartFlag = 0;// flag for if game has been started					
 unsigned char difficultySelected = 0;	// whether difficulty has been selected
-unsigned char maxOps = 1;	// maximum number of ops, initialized by difficulty			// DEBUG
+unsigned char maxOps = 1;	// maximum number of ops, initialized by difficulty			
 unsigned char numCompleted = 0;	// resets at a lock unlock	// LED
 unsigned char numUnlocks = 0;	// total number of unlocks, need 2 to open safe	// LED
 unsigned char timerLED = 0x00;	// flag for if timer LED should be lit/blinked	// LED
@@ -46,7 +43,7 @@ unsigned char displayColumn = 1;// column for LCD display
 unsigned char endFlag = 0;	// flag for game end
 unsigned char alarmOn = 0;
 const double frq = 262.00;	// frequency for speakers
-long totalTime = 0;		// total "time" value							// DEBUG	
+long totalTime = 0;		// total "time" value							
 int difficulty = 0;		// 0 = none ; 1 = unsecure ; 2 = secure ; 3 = maximum security		
 int numAttempts = 0;		// total number of attempts, depends on difficulty
 int score = 0;			// score
@@ -127,7 +124,7 @@ int main(void) {
 		else if ((!gameStartFlag) && difficultySelected) {	// difficulty has been selected, seed rand
 			randNum = (difficulty * numPeriod * 3) % 7;
 			srand(randNum);
-			//srand(0);					// DEBUG
+			//srand(0);					// DEBUG - Getting same problems
 			gameStartFlag = 1;	// sets gameStartFlag to true, prevents this and above if from running
 		}
 
@@ -398,7 +395,7 @@ int MathProblemSM(int state) {	// prints and checks math inputs
 			break;
 		case PRINT:
 			PrintText("=\0");
-			PrintText(num_to_str(Solution));	// DEBUG
+			//PrintText(num_to_str(Solution));	// DEBUG - Print Solution
 			equationLen += displayColumn;	// displayColumn - 1 at this part is equal to the equation len
 			break;
 		case SOLVE:
